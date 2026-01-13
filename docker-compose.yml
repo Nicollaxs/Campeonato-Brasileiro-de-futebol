@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  # Defina aqui os serviços necessários para o projeto
+  # Exemplo: banco de dados, Jupyter, etc.
+  
+  # jupyter:
+  #   build: .
+  #   ports:
+  #     - "8888:8888"
+  #   volumes:
+  #     - .:/workspace
