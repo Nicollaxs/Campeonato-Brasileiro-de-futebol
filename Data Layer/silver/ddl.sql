@@ -1,139 +1,142 @@
--- Arquitetura Medalhão: Camada SILVER
+--Camada RAW
 -- Configurações iniciais
 SET timezone = 'America/Sao_Paulo';
 
-CREATE SCHEMA IF NOT EXISTS silver;
+-- Extensões necessárias
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pg_stat_statements";
 
--- Drop da tabela se existir
-DROP TABLE IF EXISTS silver.tb_partidas_completa CASCADE;
+-- SCHEMA RAW 
 
--- Esta tabela integra TODOS os dados das 4 tabelas RAW em uma única estrutura
+CREATE SCHEMA IF NOT EXISTS raw;
 
-CREATE TABLE silver.tb_partidas_completa (
+-- Drop das tabelas se existirem
+DROP TABLE IF EXISTS raw.tb_estatisticas CASCADE;
+DROP TABLE IF EXISTS raw.tb_cartoes CASCADE;
+DROP TABLE IF EXISTS raw.tb_gols CASCADE;
+DROP TABLE IF EXISTS raw.tb_partidas CASCADE;
+
+-- TABELA: PARTIDAS 
+
+CREATE TABLE raw.tb_partidas (
+    -- Identificador único
+    id BIGINT PRIMARY KEY,
     
-    --IDENTIFICADORES 
-    partida_id BIGINT NOT NULL,
-    
-    --DADOS TEMPORAIS 
+    -- Dados temporais
     rodata INTEGER,
     data DATE,
     hora TIME,
-    data_hora TIMESTAMP,
-    ano INTEGER,
-    mes INTEGER,
-    dia_semana VARCHAR(20),
     
-    -- DADOS DOS TIMES 
-    -- Mandante
+    -- Times
     mandante VARCHAR(100),
-    mandante_estado VARCHAR(2),
-    mandante_placar INTEGER,
-    formacao_mandante VARCHAR(10),
-    tecnico_mandante VARCHAR(100),
-    
-    -- Visitante
     visitante VARCHAR(100),
-    visitante_estado VARCHAR(2),
-    visitante_placar INTEGER,
+    
+    -- Formações e técnicos
+    formacao_mandante VARCHAR(10),
     formacao_visitante VARCHAR(10),
+    tecnico_mandante VARCHAR(100),
     tecnico_visitante VARCHAR(100),
     
-    --  RESULTADO DA PARTIDA 
+    -- Resultado
     vencedor VARCHAR(100),
-    tipo_resultado VARCHAR(20), -- 'Vitória Mandante', 'Vitória Visitante', 'Empate'
-    diferenca_gols INTEGER,
-    total_gols INTEGER,
+    mandante_placar INTEGER,
+    visitante_placar INTEGER,
     
-    --  LOCALIZAÇÃO 
+    -- Localização
     arena VARCHAR(200),
-    estado_partida VARCHAR(2),
-    
-    --  ESTATÍSTICAS - MANDANTE 
-    mandante_chutes INTEGER,
-    mandante_chutes_alvo INTEGER,
-    mandante_posse_bola DECIMAL(5,2),
-    mandante_passes INTEGER,
-    mandante_precisao_passes DECIMAL(5,2),
-    mandante_faltas INTEGER,
-    mandante_cartoes_amarelos INTEGER,
-    mandante_cartoes_vermelhos INTEGER,
-    mandante_impedimentos INTEGER,
-    mandante_escanteios INTEGER,
-    
-    --  ESTATÍSTICAS - VISITANTE 
-    visitante_chutes INTEGER,
-    visitante_chutes_alvo INTEGER,
-    visitante_posse_bola DECIMAL(5,2),
-    visitante_passes INTEGER,
-    visitante_precisao_passes DECIMAL(5,2),
-    visitante_faltas INTEGER,
-    visitante_cartoes_amarelos INTEGER,
-    visitante_cartoes_vermelhos INTEGER,
-    visitante_impedimentos INTEGER,
-    visitante_escanteios INTEGER,
-    
-    --  TOTALIZADORES DE GOLS 
-    total_gols_mandante INTEGER DEFAULT 0,
-    total_gols_visitante INTEGER DEFAULT 0,
-    total_gols_partida INTEGER DEFAULT 0,
-    gols_contra INTEGER DEFAULT 0,
-    gols_penalty INTEGER DEFAULT 0,
-    
-    --  TOTALIZADORES DE CARTÕES 
-    total_cartoes_amarelos INTEGER DEFAULT 0,
-    total_cartoes_vermelhos INTEGER DEFAULT 0,
-    total_cartoes INTEGER DEFAULT 0,
-    
-    --  CLASSIFICAÇÕES CALCULADAS 
-    foi_equilibrado BOOLEAN, -- Diferença <= 1 gol
-    foi_goleada BOOLEAN, -- Diferença >= 3 gols
-    teve_virada BOOLEAN, -- Analisar sequência de gols
-    categoria_gols VARCHAR(20) -- 'Sem gols', 'Poucos gols', 'Muitos gols', 'Jogo de gols'
+    mandante_estado VARCHAR(2),
+    visitante_estado VARCHAR(2)
 );
 
---ÍNDICES PARA PERFORMANCE 
+-- TABELA: GOLS 
 
-CREATE INDEX idx_silver_partida ON silver.tb_partidas_completa(partida_id);
-CREATE INDEX idx_silver_data ON silver.tb_partidas_completa(data);
-CREATE INDEX idx_silver_ano ON silver.tb_partidas_completa(ano);
-CREATE INDEX idx_silver_rodata ON silver.tb_partidas_completa(rodata);
-CREATE INDEX idx_silver_mandante ON silver.tb_partidas_completa(mandante);
-CREATE INDEX idx_silver_visitante ON silver.tb_partidas_completa(visitante);
-CREATE INDEX idx_silver_vencedor ON silver.tb_partidas_completa(vencedor);
-CREATE INDEX idx_silver_arena ON silver.tb_partidas_completa(arena);
+CREATE TABLE raw.tb_gols (
+    -- Chave composta (não tem ID único no CSV)
+    partida_id BIGINT NOT NULL,
+    rodata INTEGER,
+    clube VARCHAR(100),
+    atleta VARCHAR(200),
+    minuto VARCHAR(10),
+    tipo_de_gol VARCHAR(50),
+    
+    -- Constraint
+    CONSTRAINT fk_gols_partida FOREIGN KEY (partida_id) 
+        REFERENCES raw.tb_partidas(id) ON DELETE CASCADE
+);
 
---VIEW AUXILIAR: GOLS POR PARTIDA 
+-- TABELA: CARTÕES 
 
-CREATE OR REPLACE VIEW silver.vw_gols_por_partida AS
-SELECT 
-    partida_id,
-    COUNT(*) as total_gols,
-    COUNT(CASE WHEN tipo_de_gol = 'Gol Contra' THEN 1 END) as gols_contra,
-    COUNT(CASE WHEN tipo_de_gol = 'Penalty' THEN 1 END) as gols_penalty,
-    STRING_AGG(atleta || ' (' || minuto || '''' || ')', ', ' ORDER BY minuto) as sequencia_gols
-FROM raw.tb_gols
-GROUP BY partida_id;
+CREATE TABLE raw.tb_cartoes (
+    -- Chave composta
+    partida_id BIGINT NOT NULL,
+    rodata INTEGER,
+    clube VARCHAR(100),
+    cartao VARCHAR(20),
+    atleta VARCHAR(200),
+    num_camisa VARCHAR(10),
+    posicao VARCHAR(50),
+    minuto VARCHAR(10),
+    
+    -- Constraint
+    CONSTRAINT fk_cartoes_partida FOREIGN KEY (partida_id) 
+        REFERENCES raw.tb_partidas(id) ON DELETE CASCADE
+);
 
--- VIEW AUXILIAR: CARTÕES POR PARTIDA 
+-- TABELA: ESTATÍSTICAS 
 
-CREATE OR REPLACE VIEW silver.vw_cartoes_por_partida AS
-SELECT 
-    partida_id,
-    COUNT(CASE WHEN cartao = 'Amarelo' THEN 1 END) as total_amarelos,
-    COUNT(CASE WHEN cartao = 'Vermelho' THEN 1 END) as total_vermelhos,
-    COUNT(*) as total_cartoes
-FROM raw.tb_cartoes
-GROUP BY partida_id;
+CREATE TABLE raw.tb_estatisticas (
+    -- Chave composta (uma linha por time por partida)
+    partida_id BIGINT NOT NULL,
+    rodata INTEGER,
+    clube VARCHAR(100),
+    
+    -- Estatísticas da partida
+    chutes INTEGER,
+    chutes_no_alvo INTEGER,
+    posse_de_bola DECIMAL(5,2),
+    passes INTEGER,
+    precisao_passes DECIMAL(5,2),
+    faltas INTEGER,
+    cartao_amarelo INTEGER,
+    cartao_vermelho INTEGER,
+    impedimentos INTEGER,
+    escanteios INTEGER,
+    
+    -- Constraint
+    CONSTRAINT fk_estatisticas_partida FOREIGN KEY (partida_id) 
+        REFERENCES raw.tb_partidas(id) ON DELETE CASCADE
+);
+
+-- ÍNDICES PARA PERFORMANCE 
+
+-- Partidas
+CREATE INDEX idx_partidas_data ON raw.tb_partidas(data);
+CREATE INDEX idx_partidas_mandante ON raw.tb_partidas(mandante);
+CREATE INDEX idx_partidas_visitante ON raw.tb_partidas(visitante);
+CREATE INDEX idx_partidas_rodata ON raw.tb_partidas(rodata);
+
+-- Gols
+CREATE INDEX idx_gols_partida ON raw.tb_gols(partida_id);
+CREATE INDEX idx_gols_clube ON raw.tb_gols(clube);
+CREATE INDEX idx_gols_atleta ON raw.tb_gols(atleta);
+
+-- Cartões
+CREATE INDEX idx_cartoes_partida ON raw.tb_cartoes(partida_id);
+CREATE INDEX idx_cartoes_clube ON raw.tb_cartoes(clube);
+CREATE INDEX idx_cartoes_atleta ON raw.tb_cartoes(atleta);
+
+-- Estatísticas
+CREATE INDEX idx_estatisticas_partida ON raw.tb_estatisticas(partida_id);
+CREATE INDEX idx_estatisticas_clube ON raw.tb_estatisticas(clube);
 
 -- MENSAGEM DE SUCESSO 
 
 DO $$
 BEGIN
-    RAISE NOTICE 'Schema SILVER criado com sucesso!';
-    RAISE NOTICE '   - Tabela silver.tb_partidas_completa';
-    RAISE NOTICE '   - View silver.vw_gols_por_partida';
-    RAISE NOTICE '   - View silver.vw_cartoes_por_partida';
+    RAISE NOTICE 'Schema RAW criado com sucesso!';
+    RAISE NOTICE '   - Tabela raw.tb_partidas';
+    RAISE NOTICE '   - Tabela raw.tb_gols';
+    RAISE NOTICE '   - Tabela raw.tb_cartoes';
+    RAISE NOTICE '   - Tabela raw.tb_estatisticas';
     RAISE NOTICE '   - Índices criados';
-    RAISE NOTICE '';
-    RAISE NOTICE 'PRÓXIMO PASSO: Executar ETL para popular a tabela silver';
 END $$;
