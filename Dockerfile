@@ -11,7 +11,7 @@ ENV POSTGRES_USER=brasileirao_user
 ENV POSTGRES_PASSWORD=brasileirao_pass
 
 # Copiar scripts DDL para o diretório de init do PostgreSQL
-COPY "Data Layer/raw/ddl.sql" /docker-entrypoint-initdb.d/00_raw_ddl.sql
+# RAW Layer: Apenas CSVs (sem banco de dados)
 COPY "Data Layer/silver/ddl.sql" /docker-entrypoint-initdb.d/01_silver_ddl.sql
 COPY "Data Layer/gold/ddl.sql" /docker-entrypoint-initdb.d/02_gold_ddl.sql
 
