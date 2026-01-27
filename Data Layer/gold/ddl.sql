@@ -1,5 +1,4 @@
 -- Consultas Analiticas - Camada GOLD
--- 10 Consultas Principais para Analise do Campeonato Brasileiro
 
 -- 1. Top 10 Times com Melhor Aproveitamento Historico
 SELECT 

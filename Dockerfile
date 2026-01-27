@@ -11,8 +11,11 @@ ENV POSTGRES_USER=brasileirao_user
 ENV POSTGRES_PASSWORD=brasileirao_pass
 
 # Copiar scripts DDL para o diretório de init do PostgreSQL
+# Scripts são executados em ordem alfabética
 # RAW Layer: Apenas CSVs (sem banco de dados)
+# SILVER Layer: Dados integrados e limpos
 COPY "Data Layer/silver/ddl.sql" /docker-entrypoint-initdb.d/01_silver_ddl.sql
+# GOLD Layer: Modelo dimensional (Star Schema)
 COPY "Data Layer/gold/ddl.sql" /docker-entrypoint-initdb.d/02_gold_ddl.sql
 
 # Expor porta padrão do PostgreSQL
