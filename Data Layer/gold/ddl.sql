@@ -1,225 +1,122 @@
--- Consultas Analiticas - Camada GOLD
 
--- 1. Top 10 Times com Melhor Aproveitamento Historico
-SELECT 
-    ds_tim_nom,
-    ds_tim_est,
-    COUNT(DISTINCT nr_tem_ano) as temporadas_disputadas,
-    SUM(total_jogos) as total_jogos,
-    SUM(total_pontos) as total_pontos,
-    ROUND(AVG(aproveitamento_pct), 2) as aproveitamento_medio,
-    SUM(gols_marcados) as gols_marcados,
-    SUM(gols_sofridos) as gols_sofridos,
-    SUM(saldo_gols) as saldo_gols
-FROM gold.vw_ranking_times
-WHERE total_jogos >= 10
-GROUP BY ds_tim_nom, ds_tim_est
-ORDER BY aproveitamento_medio DESC, total_pontos DESC
-LIMIT 10;
+-- 1. DIMENSÃO TEMPO (DIM_TEM_TEMPO)
 
--- 2. Desempenho Mandante vs Visitante (Ultimos 5 Anos)
-WITH stats_mandante AS (
-    SELECT 
-        t.ds_tim_nom,
-        COUNT(*) as jogos_casa,
-        SUM(CASE WHEN r.ds_res_ven = t.ds_tim_nom THEN 1 ELSE 0 END) as vitorias_casa,
-        ROUND(AVG(fp.vl_par_man_pos_bol), 2) as posse_media_casa
-    FROM gold.fct_par_partida fp
-    JOIN gold.dim_tim_time t ON fp.srk_tim_man = t.srk_tim_tim
-    JOIN gold.dim_tem_tempo dt ON fp.srk_tem_tem = dt.srk_tem_tem
-    LEFT JOIN gold.dim_res_resultado r ON fp.srk_res_res = r.srk_res_res
-    WHERE dt.nr_tem_ano >= (SELECT MAX(nr_tem_ano) - 4 FROM gold.dim_tem_tempo)
-    GROUP BY t.ds_tim_nom
-),
-stats_visitante AS (
-    SELECT 
-        t.ds_tim_nom,
-        COUNT(*) as jogos_fora,
-        SUM(CASE WHEN r.ds_res_ven = t.ds_tim_nom THEN 1 ELSE 0 END) as vitorias_fora,
-        ROUND(AVG(fp.vl_par_vis_pos_bol), 2) as posse_media_fora
-    FROM gold.fct_par_partida fp
-    JOIN gold.dim_tim_time t ON fp.srk_tim_vis = t.srk_tim_tim
-    JOIN gold.dim_tem_tempo dt ON fp.srk_tem_tem = dt.srk_tem_tem
-    LEFT JOIN gold.dim_res_resultado r ON fp.srk_res_res = r.srk_res_res
-    WHERE dt.nr_tem_ano >= (SELECT MAX(nr_tem_ano) - 4 FROM gold.dim_tem_tempo)
-    GROUP BY t.ds_tim_nom
-)
-SELECT 
-    sm.ds_tim_nom,
-    sm.jogos_casa,
-    sm.vitorias_casa,
-    ROUND(sm.vitorias_casa::NUMERIC / sm.jogos_casa * 100, 2) as taxa_vitoria_casa,
-    sv.jogos_fora,
-    sv.vitorias_fora,
-    ROUND(sv.vitorias_fora::NUMERIC / sv.jogos_fora * 100, 2) as taxa_vitoria_fora
-FROM stats_mandante sm
-JOIN stats_visitante sv ON sm.ds_tim_nom = sv.ds_tim_nom
-WHERE sm.jogos_casa >= 10 AND sv.jogos_fora >= 10
-ORDER BY taxa_vitoria_casa DESC
-LIMIT 15;
+CREATE TABLE DIM_TEM_TEMPO (
+    srk_tem_tem      INT NOT NULL,          
+    dt_tem_dat       DATE,                 
+    nr_tem_ano       INT,
+    nr_tem_mes       INT,
+    ds_tem_mes_nom   VARCHAR(20),           
+    nr_tem_tri       INT,                 
+    nr_tem_sem       INT,                  
+    nr_tem_dia_mes   INT,
+    nr_tem_dia_ano   INT,
+    nr_tem_dia_sem   INT,                   
+    ds_tem_dia_sem   VARCHAR(20),           
+    fl_tem_fim_sem   BOOLEAN,              
+    ds_tem_tmp       VARCHAR(10),          
+    hr_tem_hor       TIME,                  
+    
+    CONSTRAINT PK_DIM_TEMPO PRIMARY KEY (srk_tem_tem)
+);
 
--- 3. Evolucao de Gols por Ano
-SELECT 
-    dt.nr_tem_ano,
-    COUNT(*) as total_partidas,
-    SUM(fp.qt_par_tot_gol) as total_gols,
-    ROUND(AVG(fp.qt_par_tot_gol), 2) as media_gols_partida,
-    SUM(CASE WHEN r.fl_res_gol THEN 1 ELSE 0 END) as total_goleadas,
-    ROUND(SUM(CASE WHEN r.fl_res_gol THEN 1 ELSE 0 END)::NUMERIC / COUNT(*) * 100, 2) as pct_goleadas
-FROM gold.fct_par_partida fp
-JOIN gold.dim_tem_tempo dt ON fp.srk_tem_tem = dt.srk_tem_tem
-LEFT JOIN gold.dim_res_resultado r ON fp.srk_res_res = r.srk_res_res
-GROUP BY dt.nr_tem_ano
-ORDER BY dt.nr_tem_ano;
+-- 2. DIMENSÃO TIME (DIM_TIM_TIME)
+CREATE TABLE DIM_TIM_TIME (
+    srk_tim_tim      INT NOT NULL,          
+    nk_tim_tim       VARCHAR(100),          
+    ds_tim_nom       VARCHAR(100),          
+    ds_tim_est       VARCHAR(2),            
+    ds_tim_reg       VARCHAR(50),           
+    fl_tim_pri_div   BOOLEAN,               
+    
+    CONSTRAINT PK_DIM_TIME PRIMARY KEY (srk_tim_tim)
+);
 
--- 4. Analise por Dia da Semana
-SELECT 
-    dt.ds_tem_dia_sem,
-    dt.fl_tem_fim_sem,
-    COUNT(*) as total_partidas,
-    ROUND(AVG(fp.qt_par_tot_gol), 2) as media_gols,
-    SUM(CASE WHEN r.ds_res_tip_res = 'Vitoria Mandante' THEN 1 ELSE 0 END) as vitorias_mandante,
-    SUM(CASE WHEN r.ds_res_tip_res = 'Empate' THEN 1 ELSE 0 END) as empates,
-    ROUND(SUM(CASE WHEN r.ds_res_tip_res = 'Vitoria Mandante' THEN 1 ELSE 0 END)::NUMERIC / COUNT(*) * 100, 2) as pct_vitorias_mandante
-FROM gold.fct_par_partida fp
-JOIN gold.dim_tem_tempo dt ON fp.srk_tem_tem = dt.srk_tem_tem
-LEFT JOIN gold.dim_res_resultado r ON fp.srk_res_res = r.srk_res_res
-GROUP BY dt.ds_tem_dia_sem, dt.fl_tem_fim_sem, dt.nr_tem_dia_sem
-ORDER BY dt.nr_tem_dia_sem;
 
--- 5. Top 10 Arenas com Maior Media de Gols
-SELECT 
-    da.ds_are_nom,
-    da.ds_are_est,
-    da.ds_are_reg,
-    COUNT(*) as total_partidas,
-    ROUND(AVG(fp.qt_par_tot_gol), 2) as media_gols,
-    SUM(fp.qt_par_tot_gol) as total_gols,
-    ROUND(SUM(CASE WHEN r.ds_res_tip_res = 'Vitoria Mandante' THEN 1 ELSE 0 END)::NUMERIC / COUNT(*) * 100, 2) as pct_vitorias_mandante
-FROM gold.fct_par_partida fp
-JOIN gold.dim_are_arena da ON fp.srk_are_are = da.srk_are_are
-LEFT JOIN gold.dim_res_resultado r ON fp.srk_res_res = r.srk_res_res
-GROUP BY da.ds_are_nom, da.ds_are_est, da.ds_are_reg
-HAVING COUNT(*) >= 20
-ORDER BY media_gols DESC
-LIMIT 10;
+-- 3. DIMENSÃO ARENA (DIM_ARE_ARENA)
 
--- 6. Times Mais Eficientes na Finalizacao (Ultimos 5 Anos)
-SELECT 
-    t.ds_tim_nom,
-    COUNT(*) as jogos,
-    ROUND(AVG(
-        CASE 
-            WHEN fp.srk_tim_man = t.srk_tim_tim THEN fp.vl_par_man_tax_con
-            ELSE fp.vl_par_vis_tax_con
-        END
-    ), 2) as taxa_conversao_media,
-    ROUND(AVG(
-        CASE 
-            WHEN fp.srk_tim_man = t.srk_tim_tim THEN fp.vl_par_man_efi
-            ELSE fp.vl_par_vis_efi
-        END
-    ), 2) as eficiencia_media,
-    SUM(
-        CASE 
-            WHEN fp.srk_tim_man = t.srk_tim_tim THEN fp.qt_par_gol_man
-            ELSE fp.qt_par_gol_vis
-        END
-    ) as total_gols
-FROM gold.fct_par_partida fp
-JOIN gold.dim_tim_time t ON (fp.srk_tim_man = t.srk_tim_tim OR fp.srk_tim_vis = t.srk_tim_tim)
-JOIN gold.dim_tem_tempo dt ON fp.srk_tem_tem = dt.srk_tem_tem
-WHERE dt.nr_tem_ano >= (SELECT MAX(nr_tem_ano) - 4 FROM gold.dim_tem_tempo)
-GROUP BY t.ds_tim_nom
-HAVING COUNT(*) >= 30
-ORDER BY taxa_conversao_media DESC
-LIMIT 10;
+CREATE TABLE DIM_ARE_ARENA (
+    srk_are_are      INT NOT NULL,          
+    nk_are_are       VARCHAR(150),          
+    ds_are_nom       VARCHAR(150),         
+    ds_are_est       VARCHAR(2),            
+    ds_are_reg       VARCHAR(50),           
+    qt_are_cap       INT,                   
+    ds_are_tip_gra   VARCHAR(50),           
+    
+    CONSTRAINT PK_DIM_ARENA PRIMARY KEY (srk_are_are)
+);
 
--- 7. Times Mais Disciplinados (Ultimos 5 Anos)
-SELECT 
-    t.ds_tim_nom,
-    COUNT(*) as jogos,
-    SUM(
-        CASE 
-            WHEN fp.srk_tim_man = t.srk_tim_tim THEN fp.qt_par_man_car_ama
-            ELSE fp.qt_par_vis_car_ama
-        END
-    ) as total_amarelos,
-    SUM(
-        CASE 
-            WHEN fp.srk_tim_man = t.srk_tim_tim THEN fp.qt_par_man_car_ver
-            ELSE fp.qt_par_vis_car_ver
-        END
-    ) as total_vermelhos,
-    ROUND(AVG(
-        CASE 
-            WHEN fp.srk_tim_man = t.srk_tim_tim THEN fp.qt_par_man_car_ama + fp.qt_par_man_car_ver
-            ELSE fp.qt_par_vis_car_ama + fp.qt_par_vis_car_ver
-        END
-    ), 2) as media_cartoes_jogo
-FROM gold.fct_par_partida fp
-JOIN gold.dim_tim_time t ON (fp.srk_tim_man = t.srk_tim_tim OR fp.srk_tim_vis = t.srk_tim_tim)
-JOIN gold.dim_tem_tempo dt ON fp.srk_tem_tem = dt.srk_tem_tem
-WHERE dt.nr_tem_ano >= (SELECT MAX(nr_tem_ano) - 4 FROM gold.dim_tem_tempo)
-GROUP BY t.ds_tim_nom
-HAVING COUNT(*) >= 30
-ORDER BY media_cartoes_jogo ASC
-LIMIT 10;
 
--- 8. Maiores Goleadas da Historia
-SELECT 
-    dt.dt_tem_dat,
-    dt.nr_tem_ano,
-    tm.ds_tim_nom as mandante,
-    tv.ds_tim_nom as visitante,
-    fp.qt_par_gol_man,
-    fp.qt_par_gol_vis,
-    fp.qt_par_dif_gol,
-    r.ds_res_ven as vencedor,
-    da.ds_are_nom as arena
-FROM gold.fct_par_partida fp
-JOIN gold.dim_tem_tempo dt ON fp.srk_tem_tem = dt.srk_tem_tem
-JOIN gold.dim_tim_time tm ON fp.srk_tim_man = tm.srk_tim_tim
-JOIN gold.dim_tim_time tv ON fp.srk_tim_vis = tv.srk_tim_tim
-LEFT JOIN gold.dim_res_resultado r ON fp.srk_res_res = r.srk_res_res
-JOIN gold.dim_are_arena da ON fp.srk_are_are = da.srk_are_are
-WHERE r.fl_res_gol = TRUE
-ORDER BY fp.qt_par_dif_gol DESC, fp.qt_par_tot_gol DESC
-LIMIT 20;
+-- 4. DIMENSÃO RESULTADO (DIM_RES_RESULTADO)
 
--- 9. Dashboard Executivo - Metricas Consolidadas
-SELECT 
-    COUNT(DISTINCT dt.nr_tem_ano) as temporadas,
-    COUNT(DISTINCT t.srk_tim_tim) as times_diferentes,
-    COUNT(DISTINCT da.srk_are_are) as arenas_utilizadas,
-    COUNT(*) as total_partidas,
-    SUM(fp.qt_par_tot_gol) as total_gols,
-    ROUND(AVG(fp.qt_par_tot_gol), 2) as media_gols_partida,
-    ROUND(AVG(fp.vl_par_man_pos_bol), 2) as posse_media_mandante,
-    ROUND(AVG(fp.vl_par_vis_pos_bol), 2) as posse_media_visitante,
-    SUM(fp.qt_par_tot_car_ama) as total_amarelos,
-    SUM(fp.qt_par_tot_car_ver) as total_vermelhos,
-    SUM(CASE WHEN r.ds_res_tip_res = 'Vitoria Mandante' THEN 1 ELSE 0 END) as vitorias_mandante,
-    SUM(CASE WHEN r.ds_res_tip_res = 'Empate' THEN 1 ELSE 0 END) as empates,
-    SUM(CASE WHEN r.ds_res_tip_res = 'Vitoria Visitante' THEN 1 ELSE 0 END) as vitorias_visitante
-FROM gold.fct_par_partida fp
-JOIN gold.dim_tem_tempo dt ON fp.srk_tem_tem = dt.srk_tem_tem
-JOIN gold.dim_tim_time t ON (fp.srk_tim_man = t.srk_tim_tim OR fp.srk_tim_vis = t.srk_tim_tim)
-JOIN gold.dim_are_arena da ON fp.srk_are_are = da.srk_are_are
-LEFT JOIN gold.dim_res_resultado r ON fp.srk_res_res = r.srk_res_res;
+CREATE TABLE DIM_RES_RESULTADO (
+    srk_res_res      INT NOT NULL,          
+    ds_res_ven       VARCHAR(50),           
+    ds_res_tip_res   VARCHAR(50),           
+    fl_res_equ       BOOLEAN,               
+    fl_res_gol       BOOLEAN,               
+    ds_res_cat_gol   VARCHAR(50),           
+    
+    CONSTRAINT PK_DIM_RESULTADO PRIMARY KEY (srk_res_res)
+);
 
--- 10. Ranking Ultima Temporada Completa
-SELECT 
-    ROW_NUMBER() OVER (ORDER BY total_pontos DESC, saldo_gols DESC) as posicao,
-    ds_tim_nom,
-    ds_tim_est,
-    total_jogos,
-    total_pontos,
-    gols_marcados,
-    gols_sofridos,
-    saldo_gols,
-    aproveitamento_pct
-FROM gold.vw_ranking_times
-WHERE nr_tem_ano = (SELECT MAX(nr_tem_ano) FROM gold.dim_tem_tempo)
-ORDER BY total_pontos DESC, saldo_gols DESC
-LIMIT 20;
+
+-- 5. TABELA FATO PARTIDA (FCT_PAR_PARTIDA)
+
+CREATE TABLE FCT_PAR_PARTIDA (
+    -- Chaves
+    srk_par_par         INT NOT NULL,       
+    srk_tem_tem         INT NOT NULL,       
+    srk_tim_mandante    INT NOT NULL,       
+    srk_tim_visitante   INT NOT NULL,      
+    srk_are_are         INT NOT NULL,      
+    srk_res_res         INT NOT NULL,      
+
+    -- Placar e Gols
+    vl_par_man_pla      INT,                
+    vl_par_vis_pla      INT,                
+    vl_par_tot_gol      INT,                
+    vl_par_dif_gol      INT,                
+    qt_par_gol_con      INT,                
+    qt_par_gol_pen      INT,                
+
+    -- Cartões
+    qt_par_car_ama      INT,                
+    qt_par_car_ver      INT,                
+    qt_par_car_tot      INT,                
+
+    -- KPIs Calculados (Taxas e Eficiência)
+    vl_par_man_tax_con  DECIMAL(10,2),      
+    vl_par_vis_tax_con  DECIMAL(10,2),      
+    vl_par_man_efi      DECIMAL(10,2),      
+    vl_par_vis_efi      DECIMAL(10,2),      
+
+    -- Estatísticas Mandante
+    qt_par_man_chu      INT,                
+    qt_par_man_chu_alv  INT,                
+    vl_par_man_pos      DECIMAL(5,2),       
+    qt_par_man_pas      INT,                
+    vl_par_man_pre_pas  DECIMAL(5,2),       
+    qt_par_man_fal      INT,                
+    qt_par_man_imp      INT,                
+    qt_par_man_esc      INT,                
+
+    -- Estatísticas Visitante
+    qt_par_vis_chu      INT,
+    qt_par_vis_chu_alv  INT,
+    vl_par_vis_pos      DECIMAL(5,2),
+    qt_par_vis_pas      INT,
+    vl_par_vis_pre_pas  DECIMAL(5,2),
+    qt_par_vis_fal      INT,
+    qt_par_vis_imp      INT,
+    qt_par_vis_esc      INT,
+
+    -- Constraints (PK e FKs)
+    CONSTRAINT PK_FCT_PARTIDA PRIMARY KEY (srk_par_par),
+    CONSTRAINT FK_PAR_TEMPO FOREIGN KEY (srk_tem_tem) REFERENCES DIM_TEM_TEMPO (srk_tem_tem),
+    CONSTRAINT FK_PAR_MANDANTE FOREIGN KEY (srk_tim_mandante) REFERENCES DIM_TIM_TIME (srk_tim_tim),
+    CONSTRAINT FK_PAR_VISITANTE FOREIGN KEY (srk_tim_visitante) REFERENCES DIM_TIM_TIME (srk_tim_tim),
+    CONSTRAINT FK_PAR_ARENA FOREIGN KEY (srk_are_are) REFERENCES DIM_ARE_ARENA (srk_are_are),
+    CONSTRAINT FK_PAR_RESULTADO FOREIGN KEY (srk_res_res) REFERENCES DIM_RES_RESULTADO (srk_res_res)
+);
